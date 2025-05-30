@@ -1,0 +1,147 @@
+// Smart Parking System with OLED Display, Ultrasonic Sensor, Servo Gate, TCRT5000 sensors, LEDs, and Timers
+// Enhanced to show more detailed information per slot and fix LED sync
+
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <Servo.h>
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+#define SLOT_COUNT 4
+const int sensorPins[SLOT_COUNT] = {A0, A1, A2, A3};
+const int greenLEDs[SLOT_COUNT] = {2, 4, 6, 8};
+const int redLEDs[SLOT_COUNT] = {3, 5, 7, 10};
+
+#define TRIG 11
+#define ECHO 12
+Servo gateServo;
+#define SERVO_PIN 9
+
+unsigned long entryTimes[SLOT_COUNT] = {0, 0, 0, 0};
+bool isOccupied[SLOT_COUNT] = {false, false, false, false};
+const int dinarPerMinute = 1;
+
+void setup() {
+  Serial.begin(9600);
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(F("OLED init failed"));
+    while (true);
+  }
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+
+  gateServo.attach(SERVO_PIN);
+  gateServo.write(0);
+
+  pinMode(TRIG, OUTPUT);
+  pinMode(ECHO, INPUT);
+
+  for (int i = 0; i < SLOT_COUNT; i++) {
+    pinMode(sensorPins[i], INPUT);
+    pinMode(greenLEDs[i], OUTPUT);
+    pinMode(redLEDs[i], OUTPUT);
+  }
+
+  display.setCursor(0, 0);
+  display.println("Smart Parking");
+  display.display();
+  delay(2000);
+}
+
+void loop() {
+  updateParkingStatus();
+  display.clearDisplay();
+
+  if (allSlotsFull()) {
+    display.setCursor(0, 0);
+    display.println("Parking is FULL");
+  } else {
+    display.setCursor(0, 0);
+    display.println("Available Slots:");
+    int y = 10;
+    for (int i = 0; i < SLOT_COUNT; i++) {
+      display.setCursor(0, y);
+      display.print("Slot "); display.print(i + 1); display.print(": ");
+      if (isOccupied[i]) {
+        unsigned long parkedTime = (millis() - entryTimes[i]) / 60000;
+        display.print("Occupied ");
+        display.print(parkedTime); display.print("m");
+      } else {
+        display.print("Free");
+      }
+      y += 10;
+    }
+
+    if (detectIncomingCar()) {
+      display.setCursor(0, 58);
+      display.print("Welcome, Enter");
+      openGate();
+    }
+  }
+
+  display.display();
+  delay(1000);
+}
+
+bool detectIncomingCar() {
+  digitalWrite(TRIG, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG, LOW);
+
+  long duration = pulseIn(ECHO, HIGH);
+  long distance = duration * 0.034 / 2;
+  return (distance > 0 && distance < 15);
+}
+
+void openGate() {
+  gateServo.write(90);
+  delay(3000);
+  gateServo.write(0);
+}
+
+bool allSlotsFull() {
+  for (int i = 0; i < SLOT_COUNT; i++) {
+    if (!isOccupied[i]) return false;
+  }
+  return true;
+}
+
+void updateParkingStatus() {
+  for (int i = 0; i < SLOT_COUNT; i++) {
+    int value = analogRead(sensorPins[i]);
+
+    if (value < 500) {
+      if (!isOccupied[i]) {
+        isOccupied[i] = true;
+        entryTimes[i] = millis();
+      }
+      digitalWrite(redLEDs[i], HIGH);
+      digitalWrite(greenLEDs[i], LOW);
+
+    } else {
+      if (isOccupied[i]) {
+        unsigned long parkedTime = (millis() - entryTimes[i]) / 60000;
+        int bill = parkedTime * dinarPerMinute;
+
+        Serial.print("Slot ");
+        Serial.print(i + 1);
+        Serial.print(": ");
+        Serial.print(parkedTime);
+        Serial.print(" min → ");
+        Serial.print(bill);
+        Serial.println(" Dinar");
+
+        isOccupied[i] = false;
+        entryTimes[i] = 0;
+      }
+      digitalWrite(redLEDs[i], LOW);
+      digitalWrite(greenLEDs[i], HIGH);
+    }
+  }
+}
