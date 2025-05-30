@@ -1,0 +1,1 @@
+This is an embedded system project that focuses on making a smart parking system. The idea is to detect if a parking spot is empty or taken, and show that on an LCD display at the entrance to how many spots are still available, and whether the parking is full or not. Also If there is a car in the spot ,a red light will be displayed . If it’s empty, the light will be green. 
